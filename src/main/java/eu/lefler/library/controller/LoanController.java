@@ -1,14 +1,12 @@
 package eu.lefler.library.controller;
 
-import eu.lefler.library.entity.Book;
-import eu.lefler.library.entity.Loan;
-import eu.lefler.library.entity.Reader;
-import eu.lefler.library.entity.Reservation;
+import eu.lefler.library.entity.*;
 import eu.lefler.library.repository.ReservationRepository;
 import eu.lefler.library.request.LoanRequest;
 import eu.lefler.library.repository.BookRepository;
 import eu.lefler.library.repository.LoanRepository;
 import eu.lefler.library.repository.ReaderRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,6 +16,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
+import static java.time.temporal.ChronoUnit.DAYS;
+
 @RestController
 @RequestMapping("/api/loans")
 public class LoanController {
@@ -25,12 +25,17 @@ public class LoanController {
     private final BookRepository bookRepo;
     private final ReaderRepository readerRepo;
     private final ReservationRepository reservationRepo;
+    private final InvoiceController invoiceController;
 
-    LoanController(LoanRepository repo, BookRepository bookRepo, ReaderRepository readerRepo, ReservationRepository reservationRepo) {
+    @Value("${library.fees.late_return.per_day}")
+    private double lateReturnFeePerDay;
+
+    LoanController(LoanRepository repo, BookRepository bookRepo, ReaderRepository readerRepo, ReservationRepository reservationRepo, InvoiceController invoiceController) {
         this.repo = repo;
         this.bookRepo = bookRepo;
         this.readerRepo = readerRepo;
         this.reservationRepo = reservationRepo;
+        this.invoiceController = invoiceController;
     }
 
     @GetMapping("")
@@ -65,7 +70,7 @@ public class LoanController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader not found"));
 
         // check if the reader has active subscription
-        if (reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDateTime.now())) {
+        if (reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDate.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader's subscription has expired");
         }
 
@@ -104,6 +109,17 @@ public class LoanController {
 
         loan.setReturnDate(LocalDateTime.now());
 
+        // check if the book was returned past due date
+        if (loan.getDueDate().isBefore(LocalDate.now())) {
+            // create invoice for a fine
+            long daysBetween = DAYS.between(loan.getDueDate(), LocalDate.now());
+            Invoice invoice = new Invoice(lateReturnFeePerDay * daysBetween,
+                    "Fee for late return of loan " + loanId + " (Book " + loan.getBook().getName() + ").",
+                    LocalDate.now().plusMonths(1),
+                    loan.getReader());
+            invoiceController.createInvoice(invoice);
+        }
+
         return repo.save(loan);
     }
 
@@ -117,11 +133,7 @@ public class LoanController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book is loaned multiple times");
         }
 
-        Loan loan = loans.get(0);
-
-        loan.setReturnDate(LocalDateTime.now());
-
-        return repo.save(loan);
+        return returnLoan(loans.get(0).getId());
     }
 
     @PostMapping("/extend/{loanId}")

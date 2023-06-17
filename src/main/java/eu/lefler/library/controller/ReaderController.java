@@ -1,11 +1,14 @@
 package eu.lefler.library.controller;
 
+import eu.lefler.library.entity.Invoice;
 import eu.lefler.library.entity.Reader;
 import eu.lefler.library.repository.ReaderRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,8 +16,15 @@ import java.util.List;
 @RequestMapping("/api/readers")
 public class ReaderController {
     private final ReaderRepository repo;
+    private final InvoiceController invoiceController;
 
-    ReaderController(ReaderRepository repo) { this.repo = repo; }
+    @Value("${library.subscription.price}")
+    private double subscriptionPrice;
+
+    ReaderController(ReaderRepository repo, InvoiceController invoiceController) {
+        this.repo = repo;
+        this.invoiceController = invoiceController;
+    }
 
     @GetMapping("")
     List<Reader> getAll() { return repo.findAll(); }
@@ -35,12 +45,24 @@ public class ReaderController {
         Reader reader = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reader not found"));
 
+        LocalDate newExpirationDate;
+
         // check if the reader has active subscription and extend it by one year. If not, create a new one.
-        if(reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDateTime.now()))
-            reader.setSubscriptionExpirationDate(LocalDateTime.now().plusYears(1));
+        if(reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDate.now()))
+            newExpirationDate = LocalDate.now().plusYears(1);
         else {
-            reader.setSubscriptionExpirationDate(reader.getSubscriptionExpirationDate().plusYears(1));
+            newExpirationDate = reader.getSubscriptionExpirationDate().plusYears(1);
         }
+
+
+        Invoice invoice = new Invoice(subscriptionPrice,
+                "Subscription extension to " + newExpirationDate + ".",
+                LocalDate.now().plusMonths(1),
+                reader);
+        invoiceController.createInvoice(invoice);
+
+        reader.setSubscriptionExpirationDate(newExpirationDate);
+
 
         return repo.save(reader);
     }
