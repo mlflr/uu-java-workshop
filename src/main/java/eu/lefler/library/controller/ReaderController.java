@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -27,6 +28,21 @@ public class ReaderController {
     @PostMapping("")
     Reader createReader(@RequestBody Reader newReader) {
         return repo.save(newReader);
+    }
+
+    @PostMapping("/{id}/subscription/extend")
+    Reader extendReaderSubscription(@PathVariable Long id) {
+        Reader reader = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reader not found"));
+
+        // check if the reader has active subscription and extend it by one year. If not, create a new one.
+        if(reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDateTime.now()))
+            reader.setSubscriptionExpirationDate(LocalDateTime.now().plusYears(1));
+        else {
+            reader.setSubscriptionExpirationDate(reader.getSubscriptionExpirationDate().plusYears(1));
+        }
+
+        return repo.save(reader);
     }
 
     @PutMapping("/{id}")

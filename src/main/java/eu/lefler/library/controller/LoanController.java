@@ -61,6 +61,14 @@ public class LoanController {
 
     @PostMapping("")
     Loan createLoan(@RequestBody LoanRequest request) {
+        Reader reader = readerRepo.findById(request.getReaderId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader not found"));
+
+        // check if the reader has active subscription
+        if (reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader's subscription has expired");
+        }
+
         // Check if the book is not loaned already
         List<Loan> loans = repo.findByBookIdAndReturnDateIsNull(request.getBookId());
         if (loans.size() > 0) {
@@ -68,20 +76,21 @@ public class LoanController {
         }
 
         // Check if the book is not reserved
-        Reservation res = reservationRepo.findByBookIdOrderByReservationDateAsc(request.getBookId()).get(0);
+        List<Reservation> reservations = reservationRepo.findByBookIdOrderByReservationDateAsc(request.getBookId());
 
         // If the book is reserved by another reader, throw an error, if it's reserved by the same reader, delete the reservation
-        if (res != null && !Objects.equals(res.getReader().getId(), request.getReaderId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book is reserved by another reader");
-        } else if (res != null) {
-            reservationRepo.delete(res);
+        if (!reservations.isEmpty()) {
+            Reservation res = reservations.get(0);
+            if (res != null && !Objects.equals(res.getReader().getId(), request.getReaderId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book is reserved by another reader");
+            } else if (res != null) {
+                reservationRepo.delete(res);
+            }
         }
 
         Book book = bookRepo.findById(request.getBookId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book not found"));
 
-        Reader reader = readerRepo.findById(request.getReaderId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader not found"));
 
         Loan newLoan = new Loan(book, reader, LocalDate.now());
 
@@ -126,7 +135,12 @@ public class LoanController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book is reserved");
         }
 
+        if(loan.getExtensionCount() >= 2) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Loan has been extended 2 times already");
+        }
+
         loan.setDueDate(loan.getDueDate().plusDays(30));
+        loan.setExtensionCount(loan.getExtensionCount() + 1);
 
         return repo.save(loan);
     }

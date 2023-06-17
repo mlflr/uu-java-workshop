@@ -55,6 +55,11 @@ public class ReservationController {
         Reader reader = readerRepo.findById(request.getReaderId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reader not found"));
 
+        // check if the reader has active subscription
+        if (reader.getSubscriptionExpirationDate() == null || reader.getSubscriptionExpirationDate().isBefore(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reader's subscription has expired");
+        }
+
         // Check that the user doesn't already have a reservation for this book
         List<Reservation> reservations = repo.findByReaderIdAndBookId(reader.getId(), book.getId());
         if (!reservations.isEmpty()) {

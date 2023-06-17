@@ -26,10 +26,17 @@ public class DatabaseLoad {
     @Bean
     CommandLineRunner initDatabase(BookRepository bookRepo, ReaderRepository readerRepo, LoanRepository loanRepo, ReservationRepository reservationRepo) {
         return args -> {
+            log.info("Checking for existing data...");
+            List<Book> books = bookRepo.findAll();
+            if(books.size() > 0) {
+                log.info("Existing data found, skipping preloading");
+                return;
+            }
+
             log.info("Preloading Book data...");
             bookRepo.save(new Book("Hobbit", "Tolkien"));
             bookRepo.save(new Book("Harry Potter", "Rowling"));
-            List<Book> books = bookRepo.findAll();
+            books = bookRepo.findAll();
 
             log.info("Preloading Reader data...");
             readerRepo.save(new Reader("John", "Doe", "john.doe@gmail.com"));
